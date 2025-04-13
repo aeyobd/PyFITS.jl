@@ -150,10 +150,13 @@ function write_fits(filename::String, df::DataFrame;
         overwrite=false, 
     )
 
+    check_colnames(df)
     # Convert DataFrame to Python dictionary of columns
     py_columns = PyDict{String,Py}()
+
     
-    for (name, col) in pairs(eachcol(df))
+    for name in names(df)
+        col = df[!, name]
         # Convert column data to Python-friendly format
         @debug "converting $name"
         py_col = jlcol_to_py(col)
@@ -165,6 +168,7 @@ function write_fits(filename::String, df::DataFrame;
     
     # Write to FITS file
     py_table.write(filename, format="fits", overwrite=overwrite)
+    return
 end
 
 
@@ -176,6 +180,7 @@ Converts a julia column to a pandas column
 function jlcol_to_py(col::AbstractArray)
     # Handle missing values
     if any(ismissing, col)
+        @debug "masking $col"
         return create_masked_array(col)
     end
     
@@ -195,11 +200,12 @@ end
 Creates a masked array from the file.
 """
 function create_masked_array(col::AbstractArray)
-    # Separate data and mask
-
-    
+    # get filler type
     T = nonmissingtype(eltype(col))
-    fill_val = if T <: AbstractFloat
+    fill_val = if T <: Bool
+        @warn "masked Bools not supported well by astropy"
+        false
+    elseif T <: AbstractFloat
         T(NaN)
     elseif T <: Integer
         typemin(T)
@@ -208,7 +214,6 @@ function create_masked_array(col::AbstractArray)
     else
         error("Unsupported column type: $T")
     end
-
 
     mask = ismissing.(col)
     data = Vector{T}(undef, length(col))
@@ -221,11 +226,30 @@ function create_masked_array(col::AbstractArray)
         end
     end
 
+    if T  <: AbstractString
+        return Numpy[].ma.MaskedArray(
+            Numpy[].array(PyArray(data), dtype="U$(maximum(length, data))"),
+            mask = Numpy[].array(mask)
+       )
+    else
+        return Numpy[].ma.MaskedArray(
+            Numpy[].array(data),
+            mask=Numpy[].array(mask),
+        )
+    end
+end
 
-    return Numpy[].ma.MaskedArray(
-        Numpy[].array(data),
-        mask=Numpy[].array(mask),
-    )
+
+function check_colnames(df)
+    try 
+        column_names = ascii.(names(df))
+    catch e
+        if isa(e, ArgumentError)
+            throw(ArgumentError("Column names must be ASCII"))
+        else
+            rethrow(e)
+        end
+    end
 end
 
 

@@ -31,13 +31,12 @@ tdir = mktempdir()
     @testset "missings" begin
         df = DataFrame(
             a = [1, 2, missing],
-            funky_key = [4.0, missing, NaN],
+            funky_key = [4.0, missing, 2.0],
             wow = [missing, "b", "cd"],
         )
-        df[!, Symbol("nasty test")] = [missing, missing, true]
 
         # write to fits
-        PyFITS.write_fits(joinpath(tdir, "test.fits"), df)
+        PyFITS.write_fits(joinpath(tdir, "test.fits"), df, overwrite=true)
 
         # read from fits
         df2 = PyFITS.read_fits(joinpath(tdir, "test.fits"))
@@ -45,7 +44,21 @@ tdir = mktempdir()
         # check if the two dataframes are equal
         @test size(df) == size(df2)
         @test Set(names(df2)) == Set(names(df))
-        @test df.a == df2.a
+
+
+        for col in names(df)
+            for i in 1:size(df, 1)
+                a = df[i, col]
+                b = df2[i, col]
+                if ismissing(a)
+                    @test ismissing(b)
+                elseif a isa Real
+                    @test a ≈ b nans=true
+                else
+                    @test a == b
+                end
+            end
+        end
     end
 
     @testset "exceptions" begin 
