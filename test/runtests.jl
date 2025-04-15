@@ -33,6 +33,7 @@ tdir = mktempdir()
             a = [1, 2, missing],
             funky_key = [4.0, missing, 2.0],
             wow = [missing, "b", "cd"],
+            optmissings = Union{Float32, Missing}[1.0f0, 2.0f0, -2.0f0]
         )
 
         # write to fits

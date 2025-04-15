@@ -1,9 +1,10 @@
 module PyFITS
 
 export read_fits, write_fits
+import OrderedCollections: OrderedDict
 
 
-import DataFrames: DataFrame
+import DataFrames: DataFrame, disallowmissing
 using PythonCall
 
 
@@ -41,8 +42,8 @@ Return the table data as a dictionary of Numpy arrays and a
 dictionary of masks
 """
 function extract_table_data(py_table::Py, columns::Vector{String})
-    data_dict = Dict{String, Py}()
-    mask_dict = Dict{String, Py}()
+    data_dict = OrderedDict{String, Py}()
+    mask_dict = OrderedDict{String, Py}()
     for colname in columns
         col = py_table[colname]
         data = col.data
@@ -62,7 +63,7 @@ end
 function convert_pycols(py_data_dict, py_mask_dict)
     colnames = keys(py_data_dict)
 
-    data_dict = Dict{String, Any}()
+    data_dict = OrderedDict{String, Any}()
 
     for colname in colnames
         py_data = py_data_dict[colname]
@@ -127,6 +128,14 @@ end
 function check_columns(tab::Py, columns)
     all_columns = pyconvert(Vector{String}, tab.columns)
 
+    shape(col) = pyconvert(Tuple, tab[col].shape)
+    size_filter = [length(shape(col)) <= 1 for col in all_columns]
+
+    if sum(.!size_filter) > 0
+        @info "skipping multidimensional columns $(all_columns[.!size_filter])"
+    end
+    all_columns = all_columns[size_filter]
+
     if isnothing(columns)
         columns = all_columns
     else
@@ -166,6 +175,7 @@ function write_fits(filename::String, df::DataFrame;
     # Create Astropy Table
     py_table = AstroPyTable[].Table(py_columns)
     
+    @debug "python dtypes: $(py_table.dtype)"
     # Write to FITS file
     py_table.write(filename, format="fits", overwrite=overwrite)
     return
@@ -183,10 +193,12 @@ function jlcol_to_py(col::AbstractArray)
         @debug "masking $col"
         return create_masked_array(col)
     end
+
+    col = disallowmissing(col)
     
     # Handle basic types
     if eltype(col) <: AbstractString
-        return Numpy[].array(PyArray(col), dtype="U$(maximum(length, skipmissing(col)))")
+        return Numpy[].array(PyArray(col), dtype="U$(maximum(length, col))")
     end
     
     # Use zero-copy conversion for numeric arrays
